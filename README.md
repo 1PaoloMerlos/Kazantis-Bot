@@ -10,8 +10,3 @@ You will need to have a spotify Account, this is for you to access the track inf
 
 
 Install the dependencies on your Environment which you will need to install the **requirements.txt**
-
-Make sure to **create a folder** where the .py exists, **named dc_env with an .env file inside** which you will need to declare  
-**DISCORD_TOKEN= 
-SPOTIFY_CLIENT_ID=
-SPOTIFY_CLIENT_SECRET=**
