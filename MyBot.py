@@ -1,23 +1,23 @@
 # Importing libraries and modules
 import os
+import re
 import discord
+import yt_dlp
+import asyncio
+from collections import deque
 from discord.ext import commands
 from discord import app_commands
-from dotenv import load_dotenv
-import yt_dlp
-from collections import deque
-import asyncio
-import spotipy  # Spotify integration
-from spotipy.oauth2 import SpotifyClientCredentials
-import re
 from discord.ext import commands #discord help command addition
+from dotenv import load_dotenv
+import spotipy  # Spotify integration
+from spotipy.oauth2 import SpotifyClientCredentials # Spotify function authentication declaration
 
 
 # Environment variables for tokens and other sensitive data
 load_dotenv("dc_env/.env")
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Spotify credentials
+# Spotify credentials - Needed for spotify API to access track info
 sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -26,7 +26,7 @@ sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
 # Create the structure for queueing songs - Dictionary of queues
 SONG_QUEUES = {}
 DISCONNECT_TIMERS = {}
-DISCONNECT_DELAY = 300  # 5 minutes in seconds
+DISCONNECT_DELAY = 300 
 
 async def search_ytdlp_async(query, ydl_opts):
     loop = asyncio.get_running_loop()
@@ -35,6 +35,13 @@ async def search_ytdlp_async(query, ydl_opts):
 def _extract(query, ydl_opts):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(query, download=False)
+    
+def get_source(audio_url, ffmpeg_options):
+    return discord.FFmpegOpusAudio(
+        audio_url,
+        **ffmpeg_options,
+        executable="bin\\ffmpeg\\ffmpeg.exe"
+    )
 
 # Setup of intents. Intents are permissions the bot has on the server
 intents = discord.Intents.default()
@@ -173,7 +180,7 @@ def get_spotify_track_name(url):
         return None
 
 def get_spotify_track_info(url):
-    """Get detailed track info from Spotify URL"""
+    "Get detailed track info from Spotify URL"
     try:
         track_id = url.split("track/")[1].split("?")[0]
         track = sp.track(track_id)
@@ -190,7 +197,9 @@ def get_spotify_track_info(url):
 
 # Play Command
 @bot.tree.command(name="pekse", description="Vale tipote na pezei")
+
 @app_commands.describe(song_query="Spotify/YouTube URL or search query")
+
 async def play(interaction: discord.Interaction, song_query: str):
     print(f"[/pekse] Command received with query: {song_query}")
     await interaction.response.defer()
@@ -200,15 +209,14 @@ async def play(interaction: discord.Interaction, song_query: str):
         print(f"[/pekse] Cancelling disconnect timer.")
         DISCONNECT_TIMERS[guild_id_str].cancel()
         del DISCONNECT_TIMERS[guild_id_str]
-
     try:
         print(f"[/pekse] Checking voice channel.")
         if not interaction.user.voice:
             print(f"[/pekse] User not in a voice channel.")
             return await interaction.followup.send("Enna prepi na ise mesto kanali re kelleji")
-
         print(f"[/pekse] Handling voice client.")
         voice_client = interaction.guild.voice_client
+
         if not voice_client:
             print(f"[/pekse] Connecting to voice channel.")
             voice_client = await interaction.user.voice.channel.connect()
@@ -277,7 +285,7 @@ async def play(interaction: discord.Interaction, song_query: str):
         print(f"[/pekse] Added '{title}' to the queue.")
 
         if voice_client.is_playing() or voice_client.is_paused():
-            print(f"[/pekse] Bot is playing or paused. Sending 'added to queue' message.")
+            print(f"[/pekse] Bot is playing music or it's paused. Sending 'added to queue' message.")
             await interaction.followup.send(f"Empike mestin lista: **{title}**")
         else:
             print(f"[/pekse] Bot is not playing. Calling play_next_song.")
@@ -289,7 +297,6 @@ async def play(interaction: discord.Interaction, song_query: str):
         print(f"[/pekse] Error in /pekse: {e}")
         await interaction.followup.send("Kati espase pale")
 
-# Function to handle playing the next song
 # Function to handle playing the next song
 async def play_next_song(voice_client, guild_id, channel):
     print("Inside play_next_song")
@@ -313,11 +320,7 @@ async def play_next_song(voice_client, guild_id, channel):
             "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
             "options": "-vn -c:a libopus -b:a 96k",
         }
-        source = discord.FFmpegOpusAudio(
-            audio_url,
-            **ffmpeg_options,
-            executable="bin\\ffmpeg\\ffmpeg.exe"
-        )
+        source = get_source(audio_url, ffmpeg_options)
 
         def after_play(error):
             print("Inside after_play")
@@ -380,12 +383,7 @@ async def skip(interaction: discord.Interaction):
     }
 
     try:
-        source = discord.FFmpegOpusAudio(
-            audio_url,
-            **ffmpeg_options,
-            executable="bin\\ffmpeg\\ffmpeg.exe"
-        )
-
+        source = get_source(audio_url, ffmpeg_options)
 
         def after_play(error):
             if error:

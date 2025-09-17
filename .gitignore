@@ -1,0 +1,7 @@
+dc_env
+/.env
+.venv
+venv/
+.cache
+__pycache__/
+*.pyc
