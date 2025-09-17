@@ -154,13 +154,6 @@ async def fie(interaction: discord.Interaction):
         print(f"Error disconnecting: {e}")
         await interaction.response.send_message("Espasa")
 
-
-#Functions for spotify
-# Check if the input is a Spotify URL
-def is_spotify_url(query):
-    spotify_pattern = r"https?://open\.spotify\.com/track/[A-Za-z0-9]+"
-    return re.match(spotify_pattern, query)
-
 # Check if the input is a YouTube URL
 def is_youtube_url(query):
     youtube_patterns = [
@@ -168,6 +161,11 @@ def is_youtube_url(query):
         r"https?://(?:www\.)?youtu\.be/[A-Za-z0-9_-]+"
     ]
     return any(re.match(pattern, query) for pattern in youtube_patterns)
+
+# Check if the input is a Spotify URL
+def is_spotify_url(query):
+    spotify_pattern = r"https?://open\.spotify\.com/(track|playlist)/[A-Za-z0-9]+" #added |playlist support
+    return re.match(spotify_pattern, query)
 
 # Fetch song name from Spotify URL
 def get_spotify_track_name(url):
@@ -178,7 +176,8 @@ def get_spotify_track_name(url):
     except Exception as e:
         print(f"Error fetching Spotify track: {e}")
         return None
-
+    
+# fetch detail of single track
 def get_spotify_track_info(url):
     "Get detailed track info from Spotify URL"
     try:
@@ -192,6 +191,51 @@ def get_spotify_track_info(url):
     except Exception as e:
         print(f"Spotify error: {e}")
         return None
+    
+#fetch all tracks from a Spotify playlist URL
+def get_spotify_playlist_tracks(url):
+    playlist_id = url.split("playlist/")[1].split("?")[0]
+    results = sp.playlist_items(playlist_id)
+    tracks = []
+    for item in results['items']:
+        track = item['track']
+        tracks.append({
+            'title': track['name'],
+            'artist': track['artists'][0]['name'],
+            'spotify_url': track['external_urls']['spotify']
+        })
+    return tracks
+
+#pull playlist tracks from spotify and add them to the queue while playing 
+async def fetch_spotify_playlist_async(interaction, playlist_url, ydl_options):
+    guild_id = str(interaction.guild_id)
+    if guild_id not in SONG_QUEUES:
+        SONG_QUEUES[guild_id] = deque()
+
+    playlist_tracks = get_spotify_playlist_tracks(playlist_url)
+    voice_client = interaction.guild.voice_client
+
+    for track in playlist_tracks:
+        query = f"{track['artist']} - {track['title']} official audio"
+        results = await search_ytdlp_async(f"ytsearch:{query}", ydl_options)
+        entries = results.get("entries", [])
+        if not entries:
+            await interaction.followup.send(f"En ivra tpt me to: {query}")
+            continue
+
+        first_track = entries[0]
+        audio_url = first_track["url"]
+        title = first_track.get("title", "Untitled")
+
+        SONG_QUEUES[guild_id].append((audio_url, title))
+        print(f"Added '{title}' to queue")
+
+        # Start playing immediately if nothing is playing
+        if not voice_client.is_playing() and not voice_client.is_paused():
+            await play_next_song(voice_client, guild_id, interaction.channel)
+
+        await asyncio.sleep(0.5)  # optional small delay
+
 
 
 
@@ -240,23 +284,79 @@ async def play(interaction: discord.Interaction, song_query: str):
 
         print(f"[/pekse] Handling input query.")
         if is_spotify_url(song_query):
-            print(f"[/pekse] Input is a Spotify URL.")
-            track_info = get_spotify_track_info(song_query)
-            if not track_info:
-                print(f"[/pekse] Error fetching Spotify track info.")
-                return await interaction.followup.send("Exw issue me to spotify re chiakko sasme")
-            query = f"{track_info['artist']} - {track_info['title']} official audio"
-            print(f"[/pekse] Spotify query: {query}")
+            if "track/" in song_query:
+                track_info = get_spotify_track_info(song_query)
+                if not track_info:
+                    return await interaction.followup.send("Spotify track error get_spotify_track_info(song_query)")
+                query_list = [f"{track_info['artist']} - {track_info['title']} official audio"]
+
+                # Process single track like before
+                for query in query_list:
+                    print(f"[/pekse] Spotify search query: {query}")
+                    results = await search_ytdlp_async(f"ytsearch:{query}", ydl_options)
+                    tracks = results.get("entries", [])
+                    if not tracks:
+                        print(f"[/pekse] No tracks found for Spotify query: {query}")
+                        await interaction.followup.send(f"En ivra tpt me to: {query}")
+                        continue
+                    first_track = tracks[0]
+                    audio_url = first_track["url"]
+                    title = first_track.get("title", "Untitled")
+                    print(f"[/pekse] Found track: {title} - URL: {audio_url}")
+
+                    guild_id = str(interaction.guild_id)
+                    if guild_id not in SONG_QUEUES:
+                        SONG_QUEUES[guild_id] = deque()
+                        print(f"[/pekse] Created new queue for guild {guild_id}.")
+
+                    SONG_QUEUES[guild_id].append((audio_url, title))
+                    print(f"[/pekse] Added '{title}' to the queue.")
+
+            elif "playlist/" in song_query:
+                #async playlist fetching
+                playlist_tracks = get_spotify_playlist_tracks(song_query)
+                if not playlist_tracks:
+                    return await interaction.followup.send("Spotify playlist error get_spotify_playlist_tracks(song_query)")
+                
+                guild_id = str(interaction.guild_id)
+                if guild_id not in SONG_QUEUES:
+                    SONG_QUEUES[guild_id] = deque()
+
+                for track in playlist_tracks:
+                    query = f"{track['artist']} - {track['title']} official audio"
+                    print(f"[/pekse] Spotify playlist search query: {query}")
+                    results = await search_ytdlp_async(f"ytsearch:{query}", ydl_options)
+                    tracks = results.get("entries", [])
+                    if not tracks:
+                        await interaction.followup.send(f"En ivra tpt me to: {query}")
+                        continue
+
+                    first_track = tracks[0]
+                    audio_url = first_track["url"]
+                    title = first_track.get("title", "Untitled")
+                    SONG_QUEUES[guild_id].append((audio_url, title))
+                    print(f"[/pekse] Added '{title}' to the queue from playlist.")
+
+                    #start playing immediately if nothing is playing
+                    if not voice_client.is_playing() and not voice_client.is_paused():
+                        await play_next_song(voice_client, guild_id, interaction.channel)
+
+                    await asyncio.sleep(0.3)  #small delay to avoid blocking
+
+                await interaction.followup.send("added playlist to queue")
+                return  #stop further processing
+
         elif is_youtube_url(song_query):
             print(f"[/pekse] Input is a YouTube URL.")
             query = song_query
-            ydl_options["default_search"] = None # Don't prepend ytsearch
+            ydl_options["default_search"] = None  # Don't prepend ytsearch
         elif song_query.startswith("https://") or song_query.startswith("http://"):
             return await interaction.followup.send("Mono spotify i youtube links re poushtoui")
         else:
             query = f"ytsearch:{song_query}"
             print(f"[/pekse] YouTube search query: {query}")
 
+        # Handle single YouTube search or URL
         print(f"[/pekse] Searching with yt-dlp.")
         results = await search_ytdlp_async(query, ydl_options)
         tracks = results.get("entries", [])
@@ -265,7 +365,6 @@ async def play(interaction: discord.Interaction, song_query: str):
                 print(f"[/pekse] No tracks found for URL or search.")
                 return await interaction.followup.send("En ivra tpt me afto to link i anazitisi")
             elif 'url' in results:
-                # Handle direct URL extraction
                 tracks = [results]
             else:
                 print(f"[/pekse] No tracks found.")
@@ -290,7 +389,6 @@ async def play(interaction: discord.Interaction, song_query: str):
         else:
             print(f"[/pekse] Bot is not playing. Calling play_next_song.")
             await play_next_song(voice_client, guild_id, interaction.channel)
-            # Send a follow-up message NOW that the first song is being processed
             await interaction.followup.send(f"**Twra pezw:** `{title}`")
 
     except Exception as e:
