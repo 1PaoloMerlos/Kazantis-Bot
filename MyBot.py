@@ -16,6 +16,12 @@ from spotipy.oauth2 import SpotifyClientCredentials # Spotify function authentic
 # Environment variables for tokens and other sensitive data
 load_dotenv("dc_env/.env")
 TOKEN = os.getenv("DISCORD_TOKEN")
+# YouTube-DL cookies (if needed)
+cookie_content = os.getenv("YTDLP_COOKIES")
+if cookie_content:
+    # Write cookies to a temporary file at runtime
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(cookie_content)
 
 # Spotify credentials - Needed for spotify API to access track info
 sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
@@ -275,6 +281,7 @@ async def play(interaction: discord.Interaction, song_query: str):
             "format": "bestaudio/best",
             "noplaylist": True,
             "quiet": True,
+            "cookiefile": "cookies.txt" if cookie_content else None,  # Use it if exists
             "default_search": "ytsearch",
             "match_filter": lambda info: not any(
                 word in info.get('title', '').lower()
